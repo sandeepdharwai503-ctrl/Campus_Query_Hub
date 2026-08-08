@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Campus Query Hub</title>
+  <link rel="stylesheet" href="style.css" />
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body>
+  <div class="shell" x-data="queryApp()" x-init="init()">
+
+    <h1>Campus Query Hub</h1>
+
+    <div class="group">
+      <div class="group-label">Years</div>
+      <div class="item-list">
+        <template x-for="y in years" :key="y">
+          <button class="item" :class="{ selected: filters.year === y }" @click="pickYear(y)" x-text="y"></button>
+        </template>
+      </div>
+    </div>
+
+    <div class="group" x-show="filters.year">
+      <div class="group-label">Semesters</div>
+      <div class="item-list">
+        <template x-for="s in semesters" :key="s">
+          <button class="item" :class="{ selected: filters.semester === s }" @click="pickSemester(s)" x-text="s"></button>
+        </template>
+      </div>
+    </div>
+
+    <div class="group" x-show="filters.semester">
+      <div class="group-label">Batches</div>
+      <div class="item-list">
+        <template x-for="b in batches" :key="b">
+          <button class="item" :class="{ selected: filters.batch === b }" @click="pickBatch(b)" x-text="b"></button>
+        </template>
+      </div>
+    </div>
+
+    <div class="group" x-show="filters.batch">
+      <div class="group-label">Recaps</div>
+      <div class="item-list">
+        <template x-for="c in courses" :key="c.rid">
+          <button class="item" :class="{ selected: filters.rid === c.rid }" @click="pickCourse(c)" x-text="c.title"></button>
+        </template>
+      </div>
+    </div>
+
+    <div class="results" x-show="columns.length > 0">
+      <div class="results-label">Grade Average</div>
+      <table x-show="results.length > 0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <template x-for="col in columns" :key="col">
+              <th x-text="col"></th>
+            </template>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(row, idx) in results" :key="idx">
+            <tr>
+              <td x-text="idx + 1"></td>
+              <template x-for="col in columns" :key="col">
+                <td x-text="row[col] ?? '—'"></td>
+              </template>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div class="empty" x-show="results.length === 0">No records found.</div>
+    </div>
+
+    <hr />
+
+    <div class="results" x-show="customColumns.length > 0 || customError">
+      <div class="results-label">Custom Query</div>
+      <div class="error-line" x-show="customError" x-text="customError"></div>
+      <table x-show="customResults.length > 0">
+        <thead>
+          <tr>
+            <th>#</th>
+            <template x-for="col in customColumns" :key="col">
+              <th x-text="col"></th>
+            </template>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(row, idx) in customResults" :key="idx">
+            <tr>
+              <td x-text="idx + 1"></td>
+              <template x-for="col in customColumns" :key="col">
+                <td x-text="row[col] ?? '—'"></td>
+              </template>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+      <div class="empty" x-show="customColumns.length > 0 && customResults.length === 0 && !customError">
+        No rows returned.
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const API_BASE = "/api";
+        
+    async function fetchCustomQuery() {
+      const resp = await fetch(`${API_BASE}/custom-query`, { cache: "no-store" });
+      return resp.json();
+    }
+
+    const QUERIES = {
+      years: () => `SELECT DISTINCT year FROM recap ORDER BY year;`,
+
+      semesters: (year) => `
+        SELECT DISTINCT semester FROM recap
+        WHERE year = '${year}'
+        ORDER BY semester;
+      `,
+
+      batches: (year, semester) => `
+        SELECT DISTINCT class FROM recap
+        WHERE year = '${year}' AND semester = '${semester}'
+        ORDER BY class;
+      `,
+
+      courses: (year, semester, cls) => `
+        SELECT r.rid, c.title, c.code, f.name AS faculty_name
+        FROM recap r
+        JOIN course  c ON c.cid = r.cid
+        JOIN faculty f ON f.fid = r.fid
+        WHERE r.year = '${year}' AND r.semester = '${semester}' AND r.class = '${cls}'
+        ORDER BY c.title;
+      `,
+
+      gradeAverage: (rid) => `
+        WITH totals AS (
+          SELECT regno, SUM(marks) AS earned
+          FROM marks WHERE rid = ${rid}
+          GROUP BY regno
+        ),
+        max_marks AS (
+          SELECT SUM(total) AS possible FROM dist WHERE rid = ${rid}
+        ),
+        pct AS (
+          SELECT t.regno, ROUND((t.earned / m.possible) * 100) AS percentage
+          FROM totals t, max_marks m
+        )
+        SELECT g.grade, COUNT(*) AS total,
+               ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 2) AS percentage
+        FROM pct
+        JOIN grade g ON pct.percentage BETWEEN g.start AND g."end"
+        GROUP BY g.grade, g.gradeid
+        ORDER BY g.gradeid;
+      `,
+    };
+
+    async function runQuery(sqlText) {
+      const resp = await fetch(`${API_BASE}/query?q=${encodeURIComponent(sqlText)}`, { cache: "no-store" });
+      return resp.json();
+    }
+
+    function queryApp() {
+      return {
+        years: [], semesters: [], batches: [], courses: [],
+        filters: { year: "", semester: "", batch: "", rid: "" },
+        columns: [], results: [],
+
+        customColumns: [], customResults: [], customError: "",
+
+        async init() {
+          const res = await runQuery(QUERIES.years());
+          this.years = res.success ? res.data.map(r => r.year) : [];
+
+          const cres = await fetchCustomQuery();
+          if (cres.success) {
+            this.customColumns = cres.columns;
+            this.customResults = cres.data;
+          } else {
+            this.customError = cres.error;
+          }
+        },
+
+        async pickYear(y) {
+          this.filters = { year: y, semester: "", batch: "", rid: "" };
+          this.semesters = []; this.batches = []; this.courses = [];
+          this.columns = []; this.results = [];
+
+          const res = await runQuery(QUERIES.semesters(y));
+          this.semesters = res.success ? res.data.map(r => r.semester) : [];
+        },
+
+        async pickSemester(s) {
+          this.filters.semester = s;
+          this.filters.batch = ""; this.filters.rid = "";
+          this.batches = []; this.courses = [];
+          this.columns = []; this.results = [];
+
+          const res = await runQuery(QUERIES.batches(this.filters.year, s));
+          this.batches = res.success ? res.data.map(r => r.class) : [];
+        },
+
+        async pickBatch(b) {
+          this.filters.batch = b;
+          this.filters.rid = "";
+          this.courses = [];
+          this.columns = []; this.results = [];
+
+          const res = await runQuery(QUERIES.courses(this.filters.year, this.filters.semester, b));
+          this.courses = res.success ? res.data : [];
+        },
+
+        async pickCourse(c) {
+          this.filters.rid = c.rid;
+
+          const res = await runQuery(QUERIES.gradeAverage(c.rid));
+          this.columns = res.success ? res.columns : [];
+          this.results = res.success ? res.data : [];
+        },
+      };
+    }
+  </script>
+</body>
+</html>
