@@ -1,5 +1,4 @@
 
-
 A **Database Management System (DBMS) project** developed to manage student-teacher evaluation data through a backend application connected to a PostgreSQL database.
 
 ##  Overview
@@ -24,10 +23,16 @@ This project was developed as an academic DBMS project to demonstrate practical 
 ##  Project Structure
 
 ```text
-dbms-project/
+Campus_Query_Hub/
 │
 ├── backend/
-│   └── server.js
+│   ├── server.js
+│   └── ...
+│
+├── frontend/
+│   ├── index.html
+│   ├── style.css
+│   └── ...
 │
 ├── package.json
 ├── package-lock.json
@@ -40,8 +45,8 @@ dbms-project/
 ### 1. Clone the Repository
 
 ```bash
-git clone <YOUR_REPOSITORY_URL>
-cd dbms-project
+git clone <https://github.com/sandeepdharwai503-ctrl/Campus_Query_Hub>
+cd Campus_Query_Hub
 ```
 
 ### 2. Install Dependencies
@@ -58,7 +63,6 @@ Create a `.env` file in the project directory and add your Neon PostgreSQL conne
 DATABASE_URL=your_neon_database_url
 ```
 
-> Do not upload the `.env` file to GitHub because it may contain sensitive database credentials.
 
 ##  Running the Project
 
